@@ -301,5 +301,66 @@ class ItemPreprocessor(keras.layers.Layer):
        self.built = True
 
     @property
-    def vocab_sizes():
-        pass
+    def vocab_sizes(self) -> dict[str, int]:
+        sizes = {"item_id": int(self.item_lookup.vocabulary_size())}
+        if self.category_lookup is not None:
+           sizes["category_id"] = int(self.category_lookup.vocabulary_size())
+        if self.root_category_lookup is not None:
+           sizes["root_category_id"] = int(self.root_category_lookup.vocabulary_size())
+        if self.seller_lookup is not None:
+          sizes["seller_id"] = int(self.seller_lookup.vocabulary_size())
+        if self.brand_lookup is not None:
+          sizes["brand"] = int(self.brand_lookup.vocabulary_size())
+        return sizes
+        
+    def call(
+          self, inputs: dict[str, keras.KerasTensor]
+    ) -> dict[str, keras.KerasTensor]:
+       outputs: dict[str, keras.KerasTensor] = {}
+       if "item_id" in inputs:
+        outputs["item_idx"] = self.item_lookup(inputs["item_id"])
+
+       if "category_id" in inputs and self.category_lookup is not None:
+          outputs["category_idx"] = self.category_lookup(inputs["category_id"])
+
+       if "root_category_id" in inputs and self.root_category_lookup is not None:
+          outputs["root_category_idx"] = self.root_category_lookup(inputs["root_category_id"])
+
+       if "seller_id" in inputs and self.seller_lookup is not None:
+          outputs["seller_idx"] = self.seller_lookup(inputs["seller_id"])
+
+       if "brand" in inputs and self.brand_lookup is not None:
+          outputs["brand_idx"] = self.brand_lookup(inputs["brand"])
+   
+       if "log_price" in inputs and self.price_norm is not None:
+          outputs["log_price_norm"] = self.price_norm(_ensure_2d_float(inputs["log_price"]))
+
+       elif "price" in inputs and self.price_norm is not None:
+          outputs["price_norm"] = self.price_norm(_ensure_2d_float(inputs["price"]))
+   
+       if "train_smoothed_ctr" in inputs and self.ctr_norm is not None:
+          outputs["ctr_norm"] = self.ctr_norm(_ensure_2d_float(inputs["train_smoothed_ctr"]))
+
+       elif "train_ctr" in inputs and self.ctr_norm is not None:
+          outputs["ctr_norm"] = self.ctr_norm(_ensure_2d_float(inputs["train_ctr"]))
+   
+       if "train_avg_rating" in inputs and self.rating_norm is not None:
+          outputs["rating_norm"] = self.rating_norm(_ensure_2d_float(inputs["train_avg_rating"]))
+
+       return outputs
+   
+    def get_config(self) -> dict[str, Any]:
+        config = super().get_config()
+        config.update(
+           {
+              "item_vocab": self._item_vocab,
+              "category_vocab": self._category_vocab,
+              "root_category_vocab": self._root_category_vocab,
+              "seller_vocab": self._seller_vocab,
+              "brand_vocab": self._brand_vocab,
+              "price_stats": self._price_stats,
+              "ctr_stats": self._ctr_stats,
+              "rating_stats": self._rating_stats,
+           }
+        )
+        return config
