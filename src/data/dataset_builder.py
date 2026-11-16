@@ -493,25 +493,25 @@ def parse_args() -> argparse.Namespace:
       description="Build leakage-free temporal datasets for the recommender system."
   )
   parser.add_argument(
-      "raw-dir",
+      "--raw-dir",
       type=Path,
       default=Path("data/raw"),
       help="Directory containing the six raw Parquet files.",
   )
   parser.add_argument(
-      "processed-dir",
+      "--processed-dir",
       type=Path,
       default=Path("data/processed"),
       help="Destination directory for processed Parquet splits.",
   )
   parser.add_argument(
-      "train-quantile",
+      "--train-quantile",
       type=float,
       default=0.70,
       help="Chronological quantile for the end of the training window.",
   )
   parser.add_argument(
-      "val-quantile",
+      "--val-quantile",
       type=float,
       default=0.85,
       help="Chronological quantile for the end of the validation window.",
