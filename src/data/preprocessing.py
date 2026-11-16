@@ -132,6 +132,174 @@ class UserPreprocessor(keras.layers.Layer):
         self.built = True
 
     @property
+    def vocab_sizes(self) -> dict[str, int]:
+        
+        sizes = {"user_id": int(self.user_lookup.vocabulary_size())}
+        if self.city_lookup is not None:
+           sizes["city"] = int(self.city_lookup.vocabulary_size())
+        if self.device_lookup is not None:
+            sizes["device"] = int(self.device_lookup.vocabulary_size())
+        if self.language_lookup is not None:
+            sizes["language"] = int(self.language_lookup.vocabulary_size())
+        return sizes
+
+    def call(
+            self, inputs: dict[str, keras.KerasTensor]
+    ) -> dict[str, keras.KerasTensor]:
+        outputs: dict[str, keras.KerasTensor] = {}
+        if "user_id" in inputs:
+            outputs["user_idx"] = self.user_lookup(inputs["user_id"])
+        if "city" in inputs and self.city_lookup is not None:
+            outputs["city_idx"] = self.city_lookup(inputs["city"])
+        if "device" in inputs and self.device_lookup is not None:
+            outputs["device_idx"] = self.device_lookup(inputs["device"])
+        if "language" in inputs and self.language_lookup is not None:
+            outputs["language_idx"] = self.language_lookup(inputs["language"])
+        return outputs
+
+    def get_config(self) -> dict[str, Any]:
+        config = super().get_config()
+        config.update(
+            {
+                "user_vocab": self._user_vocab,
+                "city_vocab": self._city_vocab,
+                "device_vocab": self._device_vocab,
+                "language_vocab": self._language_vocab,
+            }
+        )
+        return config
+
+
+
+@keras.saving.register_keras_serializable(package="recommender")
+class ItemPreprocessor(keras.layers.Layer):
+    
+    def __init__(
+          self,
+          item_df: pl.DataFrame | None = None,
+          item_vocab: list[int] | None = None,
+          category_vocab: list[int] | None = None,
+          root_category_vocab: list[int] | None = None,
+          seller_vocab: list[int] | None = None,
+          brand_vocab: list[str] | None = None,
+          price_stats: tuple[float, float] | None = None,
+          ctr_stats: tuple[float, float] | None = None,
+          rating_stats: tuple[float, float] | None = None,
+          **kwargs: Any,
+    ) -> None:
+       super().__init__(**kwargs)
+
+       if item_df is not None:
+             item_vocab = (item_df["item_id"].drop_nulls().unique().sort().to_list())
+
+             category_vocab = (
+                 item_df["category_id"].drop_nulls().unique().sort().to_list()
+                 if "category_id" in item_df.columns
+                 else None
+             )
+             root_category_vocab = (
+                 item_df["root_category_id"].drop_nulls().unique().sort().to_list()
+                 if "root_category_id" in item_df.columns
+                 else None
+             )
+             seller_vocab = (
+                 item_df["seller_id"].drop_nulls().unique().sort().to_list()
+                 if "seller_id" in item_df.columns
+                 else None
+             )
+             brand_vocab = (
+                 item_df["brand"].drop_nulls().cast(pl.Utf8).unique().sort().to_list()
+                 if "brand" in item_df.columns
+                 else None
+             )
+       
+             if "log_price" in item_df.columns:
+               prices = item_df["log_price"].fill_null(0.0).to_numpy()
+               price_stats = (
+                   float(np.mean(prices)),
+                   max(float(np.var(prices)), 1e-8),
+               )
+             elif "price" in item_df.columns:
+               prices = item_df["price"].fill_null(0.0).to_numpy()
+               price_stats = (
+                   float(np.mean(prices)),
+                   max(float(np.var(prices)), 1e-8),
+               )
+       
+             if "train_smoothed_ctr" in item_df.columns:
+               ctrs = item_df["train_smoothed_ctr"].fill_null(0.0).to_numpy()
+               ctr_stats = (float(np.mean(ctrs)), max(float(np.var(ctrs)), 1e-8))
+             elif "train_ctr" in item_df.columns:
+               ctrs = item_df["train_ctr"].fill_null(0.0).to_numpy()
+               ctr_stats = (float(np.mean(ctrs)), max(float(np.var(ctrs)), 1e-8))
+       
+             if "train_avg_rating" in item_df.columns:
+               ratings = item_df["train_avg_rating"].fill_null(0.0).to_numpy()
+               rating_stats = (
+                   float(np.mean(ratings)),
+                   max(float(np.var(ratings)), 1e-8),
+               )
+       
+       self._item_vocab = [int(x) for x in item_vocab] if item_vocab else None
+       self._category_vocab = ([int(x) for x in category_vocab] if category_vocab else None)
+       self._root_category_vocab = ([int(x) for x in root_category_vocab] if root_category_vocab else None)
+       self._seller_vocab = ([int(x) for x in seller_vocab] if seller_vocab else None)
+       self._brand_vocab = [str(x) for x in brand_vocab] if brand_vocab else None
+       self._price_stats = price_stats
+       self._ctr_stats = ctr_stats
+       self._rating_stats = rating_stats
+   
+       self.item_lookup = (
+           build_integer_lookup(self._item_vocab)
+           if self._item_vocab
+           else layers.IntegerLookup(output_mode="int")
+       )
+       self.category_lookup = (
+           build_integer_lookup(self._category_vocab)
+           if self._category_vocab
+           else None
+       )
+       self.root_category_lookup = (
+           build_integer_lookup(self._root_category_vocab)
+           if self._root_category_vocab
+           else None
+       )
+       self.seller_lookup = (
+           build_integer_lookup(self._seller_vocab) if self._seller_vocab else None
+       )
+       self.brand_lookup = (
+           build_string_lookup(self._brand_vocab) if self._brand_vocab else None
+       )
+   
+       self.price_norm = (
+           layers.Normalization(
+               axis=-1,
+               mean=np.array([self._price_stats[0]], dtype=np.float32),
+               variance=np.array([self._price_stats[1]], dtype=np.float32),
+           )
+           if self._price_stats is not None
+           else None
+       )
+       self.ctr_norm = (
+           layers.Normalization(
+               axis=-1,
+               mean=np.array([self._ctr_stats[0]], dtype=np.float32),
+               variance=np.array([self._ctr_stats[1]], dtype=np.float32),
+           )
+           if self._ctr_stats is not None
+           else None
+       )
+       self.rating_norm = (
+           layers.Normalization(
+               axis=-1,
+               mean=np.array([self._rating_stats[0]], dtype=np.float32),
+               variance=np.array([self._rating_stats[1]], dtype=np.float32),
+           )
+           if self._rating_stats is not None
+           else None
+       )
+       self.built = True
+
+    @property
     def vocab_sizes():
         pass
-    
