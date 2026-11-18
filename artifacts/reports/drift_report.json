@@ -1,0 +1,75 @@
+{
+  "generated_at_utc": "2026-11-18T10:36:35.644044+00:00",
+  "reference_split": "train",
+  "target_split": "test",
+  "overall_status": "healthy",
+  "sample_counts": {
+    "reference_interactions": 195189,
+    "target_interactions": 41826,
+    "reference_impressions": 504934,
+    "target_impressions": 107220
+  },
+  "target_shift": {
+    "reference_ctr": 0.134592,
+    "target_ctr": 0.136887,
+    "ctr_delta": 0.002295
+  },
+  "cold_start_exposure": {
+    "unseen_user_rate": 0.049585,
+    "unseen_item_rate": 0.05563
+  },
+  "numeric_drift": {
+    "impression_position": {
+      "psi": 0.0,
+      "status": "no_drift",
+      "ks_statistic": 5e-06,
+      "ks_p_value": 1.0,
+      "reference_mean": 5.499976,
+      "current_mean": 5.5,
+      "reference_std": 2.872284,
+      "current_std": 2.872281
+    },
+    "impressed_item_price": {
+      "psi": 0.000348,
+      "status": "no_drift",
+      "ks_statistic": 0.005203,
+      "ks_p_value": 0.016599,
+      "reference_mean": 74.496406,
+      "current_mean": 74.962114,
+      "reference_std": 113.557446,
+      "current_std": 112.951628
+    },
+    "impressed_item_log_price": {
+      "psi": 0.000348,
+      "status": "no_drift",
+      "ks_statistic": 0.005203,
+      "ks_p_value": 0.016599,
+      "reference_mean": 3.894099,
+      "current_mean": 3.900196,
+      "reference_std": 0.822102,
+      "current_std": 0.824877
+    }
+  },
+  "categorical_drift": {
+    "interaction_event_type": {
+      "psi": 8.5e-05,
+      "status": "no_drift",
+      "num_categories": 5
+    },
+    "impression_user_city": {
+      "psi": 0.000572,
+      "status": "no_drift",
+      "num_categories": 12
+    },
+    "impression_user_device": {
+      "psi": 0.000719,
+      "status": "no_drift",
+      "num_categories": 3
+    },
+    "impression_root_category": {
+      "psi": 9.5e-05,
+      "status": "no_drift",
+      "num_categories": 8
+    }
+  }
+}

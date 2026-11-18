@@ -11,16 +11,23 @@ htmlcov/
 .ruff_cache/
 .mypy_cache/
 
-# Machine learning artifacts & models
+# Machine learning artifacts & models (keep lightweight serving bundle & reports for Streamlit Cloud)
 artifacts/*
 !artifacts/.gitkeep
-!artifacts/metrics_report.md
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/serving_bundle.npz
+!artifacts/models/model_metadata.json
+!artifacts/reports/
+artifacts/reports/*
+!artifacts/reports/evaluation_metrics.json
+!artifacts/reports/metrics_report.md
+!artifacts/reports/drift_report.json
 
 # Jupyter Checkpoints
 .ipynb_checkpoints/
 
-# processing data
-data/processed/*
+# Raw data stays ignored; processed splits (~8.5 MB) are tracked for Streamlit Cloud & CI
 data/raw/*
 
 # MLflow local tracking store

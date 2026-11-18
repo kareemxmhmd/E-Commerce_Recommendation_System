@@ -1,0 +1,28 @@
+{
+  "train_cutoff_timestamp": "2026-03-07T15:21:57",
+  "val_cutoff_timestamp": "2026-03-20T07:29:53",
+  "interactions": {
+    "train_rows": 195189,
+    "val_rows": 41826,
+    "test_rows": 41826,
+    "train_unique_users": 7175,
+    "val_unique_users": 4721,
+    "test_unique_users": 4820,
+    "val_unseen_users_vs_train": 136,
+    "test_unseen_users_vs_train": 239,
+    "val_unseen_items_vs_train": 74,
+    "test_unseen_items_vs_train": 207
+  },
+  "impressions": {
+    "train_rows": 504934,
+    "val_rows": 106696,
+    "test_rows": 107220
+  },
+  "catalog_summary": {
+    "total_users": 8000,
+    "cold_start_users_in_train": 825,
+    "total_items": 4000,
+    "in_stock_items": 3676,
+    "out_of_stock_items": 324
+  }
+}
