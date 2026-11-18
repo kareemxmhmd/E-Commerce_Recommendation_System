@@ -1,5 +1,3 @@
-# Lightweight dependencies for Streamlit Community Cloud (app/streamlit_app.py)
-# Inference uses serving_bundle.npz via NumPy + Polars (no TensorFlow/Keras required)
 streamlit>=1.31.0
 pandas>=2.1.0
 numpy>=1.26.0
