@@ -1,8 +1,20 @@
 import unittest
 from fastapi.testclient import TestClient
 from api.main import app
+from src.config import PathsConfig
+
+_PATHS = PathsConfig()
+_HAS_API_ARTIFACTS = (
+    (_PATHS.processed_dir / "split_metadata.json").exists()
+    and (_PATHS.models_dir / "serving_bundle.npz").exists()
+    and (_PATHS.reports_dir / "evaluation_metrics.json").exists()
+)
 
 
+@unittest.skipUnless(
+    _HAS_API_ARTIFACTS,
+    "Requires processed data, trained serving_bundle.npz, and evaluation_metrics.json.",
+)
 class TestFastAPIEndpoints(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
