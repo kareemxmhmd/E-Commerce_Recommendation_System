@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 from pathlib import Path
@@ -6,11 +7,12 @@ from typing import Any, Dict, List, Set
 import numpy as np
 import polars as pl
 
-from src.config import PathsConfig, RerankConfig
+from src.config import MLflowConfig, PathsConfig, RerankConfig
 from src.data.loader import load_processed_datasets
 from src.evaluation.metrics import evaluate_ranking_predictions
 from src.inference.predictor import ProductionRecommender
 from src.models.baseline import PopularityBaseline
+from src.tracking import log_numeric_metrics, setup_mlflow
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -62,6 +64,8 @@ def _load_leaf_preferences(
 def run_offline_evaluation(
     paths: PathsConfig | None = None,
     max_eval_users: int = 1000,
+    mlflow_config: MLflowConfig | None = None,
+    run_name: str | None = None,
 ) -> Dict[str, Any]:
 
   paths = paths or PathsConfig()
@@ -220,6 +224,50 @@ def run_offline_evaluation(
   md_path = paths.reports_dir / "metrics_report.md"
   _write_markdown_report(results, md_path)
   logger.info("Saved offline evaluation reports to %s and %s", json_path, md_path)
+
+  mlflow_mod = setup_mlflow(mlflow_config or MLflowConfig())
+  if mlflow_mod is not None:
+    trained_run_id = recommender.metadata.get("mlflow_run_id")
+    eval_run_name = run_name or f"offline-eval-u{len(eval_user_ids)}"
+    with mlflow_mod.start_run(run_name=eval_run_name):
+      tags = {
+          "stage": "evaluation",
+          "split": "test",
+      }
+      if trained_run_id:
+        tags["trained_run_id"] = str(trained_run_id)
+      mlflow_mod.set_tags(tags)
+      mlflow_mod.log_params(
+          {
+              "max_eval_users": max_eval_users,
+              "num_evaluated_users": results["num_evaluated_users"],
+              "num_warm_users": results["num_warm_users"],
+              "num_cold_users": results["num_cold_users"],
+              "total_in_stock_items": results["total_in_stock_items"],
+          }
+      )
+
+      champion_metrics = results["models"].get(
+          "keras_debiased_neural_ranker", {}
+      )
+      log_numeric_metrics(
+          mlflow_mod, champion_metrics, prefix="debiased_"
+      )
+
+      for model_name, metrics in results["models"].items():
+        with mlflow_mod.start_run(run_name=model_name, nested=True):
+          mlflow_mod.set_tags(
+              {
+                  "stage": "evaluation_variant",
+                  "model_variant": model_name,
+              }
+          )
+          log_numeric_metrics(mlflow_mod, metrics)
+
+      mlflow_mod.log_artifact(str(json_path), artifact_path="reports")
+      mlflow_mod.log_artifact(str(md_path), artifact_path="reports")
+      logger.info("Logged offline evaluation metrics and reports to MLflow.")
+
   return results
 
 
@@ -282,5 +330,38 @@ def _write_markdown_report(results: Dict[str, Any], output_path: Path) -> None:
   output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def parse_args() -> argparse.Namespace:
+  parser = argparse.ArgumentParser(
+      description="Run offline ranking evaluation and log results to MLflow."
+  )
+  parser.add_argument("--max-eval-users", type=int, default=1000)
+  parser.add_argument(
+      "--no-mlflow",
+      action="store_true",
+      help="Disable MLflow experiment tracking for this evaluation run.",
+  )
+  parser.add_argument("--tracking-uri", type=str, default=None)
+  parser.add_argument("--experiment-name", type=str, default=None)
+  parser.add_argument("--run-name", type=str, default=None)
+  return parser.parse_args()
+
+
+def main() -> None:
+  args = parse_args()
+  default_mlflow = MLflowConfig()
+  mlflow_cfg = MLflowConfig(
+      enabled=not args.no_mlflow,
+      store_dir=default_mlflow.store_dir,
+      tracking_uri=args.tracking_uri or default_mlflow.tracking_uri,
+      experiment_name=args.experiment_name or default_mlflow.experiment_name,
+      artifact_location=default_mlflow.artifact_location,
+  )
+  run_offline_evaluation(
+      max_eval_users=args.max_eval_users,
+      mlflow_config=mlflow_cfg,
+      run_name=args.run_name,
+  )
+
+
 if __name__ == "__main__":
-  run_offline_evaluation()
+  main()
