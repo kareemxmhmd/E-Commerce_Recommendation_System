@@ -46,3 +46,28 @@ class RerankConfig:
      max_items_per_seller: int = 2
      max_items_per_leaf_category: int = 3
      diversity_penalty: float = 0.08
+
+
+@dataclass(frozen=True)
+class MLflowConfig:
+
+     enabled: bool = True
+     store_dir: Path = field(default_factory=lambda: PROJECT_ROOT / "mlflow_store")
+     tracking_uri: str = field(
+          default_factory=lambda: os.getenv(
+               "MLFLOW_TRACKING_URI",
+               f"sqlite:///{(PROJECT_ROOT / 'mlflow_store' / 'mlflow.db').as_posix()}",
+          )
+     )
+     experiment_name: str = field(
+          default_factory=lambda: os.getenv(
+               "MLFLOW_EXPERIMENT_NAME",
+               "ecommerce-keras-recommender",
+          )
+     )
+     artifact_location: str = field(
+          default_factory=lambda: os.getenv(
+               "MLFLOW_ARTIFACT_LOCATION",
+               (PROJECT_ROOT / "mlflow_store" / "mlartifacts").resolve().as_uri(),
+          )
+     )
