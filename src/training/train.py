@@ -48,9 +48,9 @@ def build_feature_dict_from_impressions(
 
   inputs: dict[str, np.ndarray] = {
       "user_id": joined["user_id"].to_numpy().astype(np.int64),
-      "city": joined["city"].cast(pl.Utf8).to_numpy().astype(str),
-      "device": joined["device"].cast(pl.Utf8).to_numpy().astype(str),
-      "language": joined["language"].cast(pl.Utf8).to_numpy().astype(str),
+      "city": joined["city"].cast(pl.Utf8).fill_null("").to_numpy().astype(object),
+      "device": joined["device"].cast(pl.Utf8).fill_null("").to_numpy().astype(object),
+      "language": joined["language"].cast(pl.Utf8).fill_null("").to_numpy().astype(object),
       "item_id": joined["item_id"].to_numpy().astype(np.int64),
       "category_id": joined["category_id"].to_numpy().astype(np.int64),
       "root_category_id": (
@@ -97,9 +97,9 @@ def export_serving_bundle(
 
   user_inputs = {
       "user_id": users_df["user_id"].to_numpy().astype(np.int64),
-      "city": users_df["city"].cast(pl.Utf8).to_numpy().astype(str),
-      "device": users_df["device"].cast(pl.Utf8).to_numpy().astype(str),
-      "language": users_df["language"].cast(pl.Utf8).to_numpy().astype(str),
+      "city": users_df["city"].cast(pl.Utf8).fill_null("").to_numpy().astype(object),
+      "device": users_df["device"].cast(pl.Utf8).fill_null("").to_numpy().astype(object),
+      "language": users_df["language"].cast(pl.Utf8).fill_null("").to_numpy().astype(object),
   }
   item_inputs = {
       "item_id": items_df["item_id"].to_numpy().astype(np.int64),
