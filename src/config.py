@@ -4,7 +4,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(os.getenv(
      "RECSYS_PROJECT_ROOT",
-     Path(__file__).resolve().parent[1],
+     Path(__file__).resolve().parents[1],
 ))
 
 
