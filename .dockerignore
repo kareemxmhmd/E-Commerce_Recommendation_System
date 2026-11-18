@@ -33,6 +33,10 @@ htmlcov/
 # Local data & trained artifacts (mounted via docker-compose volumes at runtime)
 data/
 artifacts/
+mlflow_store/
+mlflow.db*
+mlruns/
+mlartifacts/
 
 # Environment & secrets
 .env
