@@ -11,7 +11,7 @@ class PopularityBaseline:
 
      global_ranking: list[int] = field(default_factory=list)
      item_scores: dict[int, float] = field(default_factory=dict)
-     segment_ranking: dict[tuple[str, str], list[int]] = field(default_factory=dict)
+     segment_rankings: dict[tuple[str, str], list[int]] = field(default_factory=dict)
      city_rankings: dict[str, list[int]] = field(default_factory=dict)
      in_stock_items: set[int] = field(default_factory=set)
      user_seen_items: dict[int, set[int]] = field(default_factory=dict)
@@ -114,10 +114,9 @@ class PopularityBaseline:
 
         if (city is None or language is None) and user_id is not None:
            demo = self.user_demographics.get(int(user_id))
-
-        if demo is not None:
-           city = city or demo[0]
-           language = language or demo[1]
+           if demo is not None:
+              city = city or demo[0]
+              language = language or demo[1]
 
         candidates: list[int] = []
         if city and language and (city, language) in self.segment_rankings:
