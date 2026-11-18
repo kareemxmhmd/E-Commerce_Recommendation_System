@@ -8,6 +8,7 @@ pyarrow>=14.0.0
 # Deep Learning & Recommender Modeling
 tensorflow>=2.15.0
 keras>=3.0.0
+mlflow>=3.0.0
 
 # Production API & Interactive UI
 fastapi>=0.109.0
