@@ -1,4 +1,5 @@
 import argparse
+from contextlib import nullcontext
 import json
 import logging
 from pathlib import Path
@@ -8,11 +9,16 @@ import keras
 import numpy as np
 import polars as pl
 
-from src.config import KerasNNConfig, PathsConfig
+from src.config import KerasNNConfig, MLflowConfig, PathsConfig
 from src.data.dataset_builder import DatasetBuilder, DatasetBuilderConfig
 from src.data.loader import ProcessedDatasetBundle, load_processed_datasets
 from src.models.baseline import PopularityBaseline
 from src.models.keras_nn import build_keras_recommender_nn
+from src.tracking import (
+    create_keras_epoch_logger,
+    log_numeric_metrics,
+    setup_mlflow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +91,7 @@ def export_serving_bundle(
     models_dir: Path,
     config: KerasNNConfig,
     training_history: dict[str, Any],
+    mlflow_run_id: str | None = None,
 ) -> dict[str, Any]:
 
   models_dir.mkdir(parents=True, exist_ok=True)
@@ -167,6 +174,7 @@ def export_serving_bundle(
       "num_users": int(users_df.height),
       "num_items": int(items_df.height),
       "default_serving_position": config.default_serving_position,
+      "mlflow_run_id": mlflow_run_id,
       "training_history": training_history,
   }
   with (models_dir / "model_metadata.json").open("w", encoding="utf-8") as f:
@@ -181,10 +189,13 @@ def run_training(
     paths: PathsConfig | None = None,
     nn_config: KerasNNConfig | None = None,
     max_train_samples: int | None = None,
+    mlflow_config: MLflowConfig | None = None,
+    run_name: str | None = None,
 ) -> dict[str, Any]:
 
   paths = paths or PathsConfig()
   nn_config = nn_config or KerasNNConfig()
+  mlflow_cfg = mlflow_config or MLflowConfig()
   keras.utils.set_random_seed(nn_config.random_seed)
 
   if not (paths.processed_dir / "split_metadata.json").exists():
@@ -222,47 +233,125 @@ def run_training(
       config=nn_config,
   )
 
-  callbacks = [
-      keras.callbacks.EarlyStopping(
-          monitor="val_roc_auc",
-          mode="max",
-          patience=nn_config.early_stopping_patience,
-          restore_best_weights=True,
-      ),
-      keras.callbacks.ReduceLROnPlateau(
-          monitor="val_roc_auc",
-          mode="max",
-          factor=0.5,
-          patience=1,
-          min_lr=1e-5,
-      ),
-  ]
-
-  history = full_model.fit(
-      x=train_inputs,
-      y=train_y,
-      sample_weight=train_w,
-      validation_data=(val_inputs, val_y),
-      batch_size=nn_config.batch_size,
-      epochs=nn_config.epochs,
-      callbacks=callbacks,
-      verbose=1,
+  mlflow_mod = setup_mlflow(mlflow_cfg)
+  resolved_run_name = (
+      run_name
+      or f"train-emb{nn_config.embedding_dim}-lr{nn_config.learning_rate}-ep{nn_config.epochs}"
+  )
+  run_ctx = (
+      mlflow_mod.start_run(run_name=resolved_run_name)
+      if mlflow_mod is not None
+      else nullcontext()
   )
 
-  history_dict = {
-      k: [round(float(v), 6) for v in vals]
-      for k, vals in history.history.items()
-  }
+  with run_ctx as active_run:
+    run_id = active_run.info.run_id if active_run is not None else None
 
-  return export_serving_bundle(
-      full_model=full_model,
-      user_tower=user_tower,
-      item_tower=item_tower,
-      bundle=bundle,
-      models_dir=paths.models_dir,
-      config=nn_config,
-      training_history=history_dict,
-  )
+    callbacks: list[keras.callbacks.Callback] = [
+        keras.callbacks.EarlyStopping(
+            monitor="val_roc_auc",
+            mode="max",
+            patience=nn_config.early_stopping_patience,
+            restore_best_weights=True,
+        ),
+        keras.callbacks.ReduceLROnPlateau(
+            monitor="val_roc_auc",
+            mode="max",
+            factor=0.5,
+            patience=1,
+            min_lr=1e-5,
+        ),
+    ]
+
+    if mlflow_mod is not None:
+      mlflow_mod.set_tags(
+          {
+              "stage": "training",
+              "model_architecture": "two_tower_debiased_neural_ranker",
+              "keras_version": keras.__version__,
+              "polars_version": pl.__version__,
+          }
+      )
+      mlflow_mod.log_params(
+          {
+              "embedding_dim": nn_config.embedding_dim,
+              "tower_hidden_units": str(list(nn_config.tower_hidden_units)),
+              "ranker_hidden_units": str(list(nn_config.ranker_hidden_units)),
+              "dropout_rate": nn_config.dropout_rate,
+              "l2_reg": nn_config.l2_reg,
+              "learning_rate": nn_config.learning_rate,
+              "batch_size": nn_config.batch_size,
+              "epochs": nn_config.epochs,
+              "early_stopping_patience": nn_config.early_stopping_patience,
+              "max_position": nn_config.max_position,
+              "default_serving_position": nn_config.default_serving_position,
+              "random_seed": nn_config.random_seed,
+              "max_train_samples": str(max_train_samples),
+              "train_samples": int(len(train_y)),
+              "val_samples": int(len(val_y)),
+              "num_users": int(bundle.users_enriched.height),
+              "num_items": int(bundle.items_enriched.height),
+          }
+      )
+      callbacks.append(create_keras_epoch_logger(mlflow_mod))
+
+    history = full_model.fit(
+        x=train_inputs,
+        y=train_y,
+        sample_weight=train_w,
+        validation_data=(val_inputs, val_y),
+        batch_size=nn_config.batch_size,
+        epochs=nn_config.epochs,
+        callbacks=callbacks,
+        verbose=1,
+    )
+
+    history_dict = {
+        k: [round(float(v), 6) for v in vals]
+        for k, vals in history.history.items()
+    }
+
+    meta = export_serving_bundle(
+        full_model=full_model,
+        user_tower=user_tower,
+        item_tower=item_tower,
+        bundle=bundle,
+        models_dir=paths.models_dir,
+        config=nn_config,
+        training_history=history_dict,
+        mlflow_run_id=run_id,
+    )
+
+    if mlflow_mod is not None:
+      val_aucs = history_dict.get("val_roc_auc", [])
+      val_pr_aucs = history_dict.get("val_pr_auc", [])
+      val_losses = history_dict.get("val_loss", [])
+      summary_metrics: dict[str, Any] = {
+          "epochs_ran": len(val_aucs) or len(history_dict.get("loss", [])),
+      }
+      if val_aucs:
+        best_idx = int(np.argmax(val_aucs))
+        summary_metrics["best_epoch"] = best_idx + 1
+        summary_metrics["best_val_roc_auc"] = val_aucs[best_idx]
+        if best_idx < len(val_pr_aucs):
+          summary_metrics["best_val_pr_auc"] = val_pr_aucs[best_idx]
+        if best_idx < len(val_losses):
+          summary_metrics["best_val_loss"] = val_losses[best_idx]
+      log_numeric_metrics(mlflow_mod, summary_metrics)
+
+      for artifact_name in (
+          "keras_recommender.keras",
+          "serving_bundle.npz",
+          "popularity_baseline.json",
+          "model_metadata.json",
+      ):
+        artifact_file = paths.models_dir / artifact_name
+        if artifact_file.exists():
+          mlflow_mod.log_artifact(
+              str(artifact_file), artifact_path="model_artifacts"
+          )
+
+    return meta
 
 
 def parse_args() -> argparse.Namespace:
@@ -274,6 +363,29 @@ def parse_args() -> argparse.Namespace:
   parser.add_argument("--embedding-dim", type=int, default=32)
   parser.add_argument("--learning-rate", type=float, default=1e-3)
   parser.add_argument("--max-train-samples", type=int, default=None)
+  parser.add_argument(
+      "--no-mlflow",
+      action="store_true",
+      help="Disable MLflow experiment tracking for this run.",
+  )
+  parser.add_argument(
+      "--tracking-uri",
+      type=str,
+      default=None,
+      help="Override MLflow tracking URI (defaults to MLFLOW_TRACKING_URI or local SQLite).",
+  )
+  parser.add_argument(
+      "--experiment-name",
+      type=str,
+      default=None,
+      help="Override MLflow experiment name.",
+  )
+  parser.add_argument(
+      "--run-name",
+      type=str,
+      default=None,
+      help="Optional custom MLflow run name.",
+  )
   return parser.parse_args()
 
 
@@ -289,7 +401,20 @@ def main() -> None:
       batch_size=args.batch_size,
       epochs=args.epochs,
   )
-  meta = run_training(nn_config=cfg, max_train_samples=args.max_train_samples)
+  default_mlflow = MLflowConfig()
+  mlflow_cfg = MLflowConfig(
+      enabled=not args.no_mlflow,
+      store_dir=default_mlflow.store_dir,
+      tracking_uri=args.tracking_uri or default_mlflow.tracking_uri,
+      experiment_name=args.experiment_name or default_mlflow.experiment_name,
+      artifact_location=default_mlflow.artifact_location,
+  )
+  meta = run_training(
+      nn_config=cfg,
+      max_train_samples=args.max_train_samples,
+      mlflow_config=mlflow_cfg,
+      run_name=args.run_name,
+  )
   print(json.dumps(meta, indent=2))
 
 
