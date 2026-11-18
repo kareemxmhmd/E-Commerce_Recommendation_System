@@ -22,3 +22,9 @@ artifacts/*
 # processing data
 data/processed/*
 data/raw/*
+
+# MLflow local tracking store
+mlflow_store/
+mlflow.db*
+mlruns/
+mlartifacts/
