@@ -7,7 +7,19 @@ import polars as pl
 from src.config import PathsConfig
 from src.data.preprocessing import ItemPreprocessor, UserPreprocessor
 
+_PATHS = PathsConfig()
+_HAS_PROCESSED_DATA = (
+    (_PATHS.processed_dir / "split_metadata.json").exists()
+    and (_PATHS.processed_dir / "train_interactions.parquet").exists()
+    and (_PATHS.processed_dir / "users_enriched.parquet").exists()
+    and (_PATHS.processed_dir / "items_enriched.parquet").exists()
+)
 
+
+@unittest.skipUnless(
+    _HAS_PROCESSED_DATA,
+    "Requires processed Parquet datasets in data/processed.",
+)
 class TestDataPipeline(unittest.TestCase):
 
   def setUp(self) -> None:
