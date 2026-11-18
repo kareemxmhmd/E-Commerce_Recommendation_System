@@ -1,0 +1,47 @@
+# Version control
+.git
+.gitignore
+
+# Python bytecode & caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing, coverage & linters
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Local data & trained artifacts (mounted via docker-compose volumes at runtime)
+data/
+artifacts/
+
+# Environment & secrets
+.env
+.env.*
+
+# IDE & OS metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
