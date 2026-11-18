@@ -298,6 +298,12 @@ class ItemPreprocessor(keras.layers.Layer):
            if self._rating_stats is not None
            else None
        )
+       if self.price_norm is not None:
+           self.price_norm.build((None, 1))
+       if self.ctr_norm is not None:
+           self.ctr_norm.build((None, 1))
+       if self.rating_norm is not None:
+           self.rating_norm.build((None, 1))
        self.built = True
 
     @property
