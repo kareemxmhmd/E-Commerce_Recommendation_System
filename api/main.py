@@ -1,12 +1,23 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 import json
 import logging
 import time
 from typing import Any, Dict, List
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 
+from api.monitoring import (
+    get_json_access_logger,
+    normalize_route_path,
+    record_catalog_state,
+    record_http_request,
+    record_recommendation_event,
+    render_prometheus_metrics,
+)
 from api.schemas import (
     HealthResponse,
     RankCandidatesRequest,
@@ -18,7 +29,34 @@ from src.config import PathsConfig, RerankConfig
 from src.inference.predictor import ProductionRecommender
 
 logger = logging.getLogger(__name__)
+access_logger = get_json_access_logger()
 paths_config = PathsConfig()
+
+recommender_service = ProductionRecommender(
+    paths=paths_config, rerank_config=RerankConfig()
+)
+
+
+def _ensure_loaded() -> ProductionRecommender:
+  if recommender_service.user_embeddings is None:
+    recommender_service.load()
+    record_catalog_state(
+        in_stock_items=(
+            len(recommender_service.baseline.in_stock_items)
+            if recommender_service.baseline
+            else 0
+        ),
+        known_users=len(recommender_service.user_profiles),
+        model_loaded=recommender_service.user_embeddings is not None,
+    )
+  return recommender_service
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+  _ensure_loaded()
+  yield
+
 
 app = FastAPI(
     title="Production E-Commerce Keras Recommender API",
@@ -27,6 +65,7 @@ app = FastAPI(
         "Production Two-Tower Retrieval + Position-Debiased Keras Neural Ranking API "
         "with cold-start demographic fallback and catalog diversity reranking."
     ),
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -37,30 +76,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-recommender_service = ProductionRecommender(
-    paths=paths_config, rerank_config=RerankConfig()
-)
-
-
-@app.on_event("startup")
-def startup_event() -> None:
-  if recommender_service.user_embeddings is None:
-    recommender_service.load()
-
 
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
+async def observability_middleware(request: Request, call_next):
+  request_id = request.headers.get("X-Request-Id") or str(uuid4())
   start = time.perf_counter()
-  response = await call_next(request)
-  elapsed_ms = (time.perf_counter() - start) * 1000.0
+  status_code = 500
+  try:
+    response = await call_next(request)
+    status_code = response.status_code
+  except Exception:
+    elapsed_sec = time.perf_counter() - start
+    endpoint = normalize_route_path(request)
+    record_http_request(request.method, endpoint, status_code, elapsed_sec)
+    access_logger.exception(
+        "http_request_failed",
+        extra={
+            "structured_fields": {
+                "event": "http_request_failed",
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "endpoint": endpoint,
+                "status_code": status_code,
+                "latency_ms": round(elapsed_sec * 1000.0, 2),
+            }
+        },
+    )
+    raise
+
+  elapsed_sec = time.perf_counter() - start
+  elapsed_ms = elapsed_sec * 1000.0
+  endpoint = normalize_route_path(request)
+  if endpoint != "/prometheus":
+    record_http_request(request.method, endpoint, status_code, elapsed_sec)
+    access_logger.info(
+        "http_request",
+        extra={
+            "structured_fields": {
+                "event": "http_request",
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "endpoint": endpoint,
+                "status_code": status_code,
+                "latency_ms": round(elapsed_ms, 2),
+            }
+        },
+    )
   response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.2f}"
+  response.headers["X-Request-Id"] = request_id
   return response
-
-
-def _ensure_loaded() -> ProductionRecommender:
-  if recommender_service.user_embeddings is None:
-    recommender_service.load()
-  return recommender_service
 
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
@@ -99,6 +165,13 @@ def get_offline_metrics() -> Dict[str, Any]:
     return json.load(f)
 
 
+@app.get("/prometheus", tags=["Monitoring"])
+def prometheus_metrics() -> Response:
+  _ensure_loaded()
+  payload, content_type = render_prometheus_metrics()
+  return Response(content=payload, media_type=content_type)
+
+
 @app.post("/recommend", response_model=RecommendResponse, tags=["Recommendations"])
 def recommend_post(payload: RecommendRequest) -> RecommendResponse:
 
@@ -115,6 +188,12 @@ def recommend_post(payload: RecommendRequest) -> RecommendResponse:
       exclude_seen=payload.exclude_seen,
       filter_out_of_stock=payload.filter_out_of_stock,
       apply_diversity_rerank=payload.apply_diversity_rerank,
+  )
+  stage_name = recs[0].stage if recs else ("cold_start_empty" if is_cold else "warm_empty")
+  record_recommendation_event(
+      is_cold_start=is_cold,
+      stage=stage_name,
+      scores=[r.score for r in recs],
   )
   return RecommendResponse(
       user_id=payload.user_id,
