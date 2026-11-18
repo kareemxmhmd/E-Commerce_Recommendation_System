@@ -5,6 +5,12 @@ from src.config import PathsConfig, RerankConfig
 from src.inference.predictor import ProductionRecommender
 from src.models.reranker import CatalogReranker
 
+_PATHS = PathsConfig()
+_HAS_SERVING_ARTIFACTS = (
+    (_PATHS.processed_dir / "split_metadata.json").exists()
+    and (_PATHS.models_dir / "serving_bundle.npz").exists()
+)
+
 
 class TestModelAndInference(unittest.TestCase):
 
@@ -99,6 +105,10 @@ class TestModelAndInference(unittest.TestCase):
     ranked_ids = [r.item_id for r in ranked]
     self.assertEqual(ranked_ids, [1, 2, 5])
 
+  @unittest.skipUnless(
+      _HAS_SERVING_ARTIFACTS,
+      "Requires processed datasets and trained serving_bundle.npz.",
+  )
   def test_production_recommender_serves_warm_and_cold_users(self) -> None:
     svc = ProductionRecommender(paths=PathsConfig()).load()
 
