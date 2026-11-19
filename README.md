@@ -2,6 +2,8 @@
 
 A production-ready two-stage recommendation system that combines Two-Tower retrieval, position-debiased Keras neural ranking, cold-start demographic fallback, and marketplace diversity reranking.
 
+**Live App:** [E-Commerce Recommendation System (Streamlit)](https://e-commercerecommendationsystem-kd7.streamlit.app)
+
 ---
 
 ## 1. Business Focus
